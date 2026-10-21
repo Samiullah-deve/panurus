@@ -24,7 +24,9 @@ import (
 
 // An operator upgrading from a release that still had services.network.fabric.recovery.advisoryLockID
 // keeps that key in their config. The lock id is now derived per TMS and the field is gone, so the
-// key must simply be ignored rather than failing the load.
+// key must simply be ignored rather than failing the load. The fixture also sits under the deprecated
+// services.network.fabric.recovery key, so this additionally exercises the deprecated-key fallback:
+// settings under it must still be applied (see TestLoadConfig_FallsBackToDeprecatedKey).
 func TestLoadConfig_IgnoresStaleAdvisoryLockID(t *testing.T) {
 	cp, err := fscconfig.NewProvider("./testdata/stalecfg")
 	require.NoError(t, err)
@@ -36,6 +38,49 @@ func TestLoadConfig_IgnoresStaleAdvisoryLockID(t *testing.T) {
 
 	assert.True(t, loaded.Enabled)
 	assert.Equal(t, 45*time.Second, loaded.TTL, "the rest of the block must still be applied")
+}
+
+// The recovery key was renamed from the Fabric-namespaced services.network.fabric.recovery to the
+// network-agnostic services.network.recovery. An operator who tuned recovery under the old key must
+// keep those settings on upgrade (with a deprecation warning) rather than silently reverting to
+// defaults, because recovery config is optional and absence falls back to defaults.
+func TestLoadConfig_FallsBackToDeprecatedKey(t *testing.T) {
+	cp, err := fscconfig.NewProvider("./testdata/stalecfg")
+	require.NoError(t, err)
+
+	cfg := tokenconfig.NewConfiguration(cp, "n1c1ns1", driver.TMSID{Network: "n1", Channel: "c1", Namespace: "ns1"})
+
+	loaded, err := recovery2.LoadConfig(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, 45*time.Second, loaded.TTL, "settings under the deprecated key must still be applied")
+}
+
+// The current services.network.recovery key is read when present.
+func TestLoadConfig_ReadsCurrentKey(t *testing.T) {
+	cp, err := fscconfig.NewProvider("./testdata/newkeycfg")
+	require.NoError(t, err)
+
+	cfg := tokenconfig.NewConfiguration(cp, "n1c1ns1", driver.TMSID{Network: "n1", Channel: "c1", Namespace: "ns1"})
+
+	loaded, err := recovery2.LoadConfig(cfg)
+	require.NoError(t, err)
+
+	assert.True(t, loaded.Enabled)
+	assert.Equal(t, 45*time.Second, loaded.TTL)
+}
+
+// When both keys are set, the current key wins and the deprecated one is ignored.
+func TestLoadConfig_CurrentKeyWinsOverDeprecated(t *testing.T) {
+	cp, err := fscconfig.NewProvider("./testdata/bothkeyscfg")
+	require.NoError(t, err)
+
+	cfg := tokenconfig.NewConfiguration(cp, "n1c1ns1", driver.TMSID{Network: "n1", Channel: "c1", Namespace: "ns1"})
+
+	loaded, err := recovery2.LoadConfig(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, 45*time.Second, loaded.TTL, "the current key's value must be used, not the deprecated key's 10s")
 }
 
 func newTestTMSConfig(isSet func(key string) bool, unmarshal func(key string, rawVal any) error) *tokenconfig.Configuration {

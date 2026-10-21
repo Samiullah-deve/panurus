@@ -1,0 +1,15 @@
+token:
+  enabled: true
+  tms:
+    n1c1ns1:
+      network: n1
+      channel: c1
+      namespace: ns1
+      services:
+        network:
+          # The current, network-agnostic recovery key. Not nested under any
+          # driver (fabric/evm/...), since the recovery manager is shared
+          # storage-service infrastructure.
+          recovery:
+            enabled: true
+            ttl: 45s

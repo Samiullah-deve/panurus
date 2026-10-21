@@ -15,8 +15,19 @@ import (
 )
 
 const (
-	// ConfigKeyRecovery is the configuration key for recovery settings
-	ConfigKeyRecovery = "services.network.fabric.recovery"
+	// ConfigKeyRecovery is the configuration key for recovery settings. The
+	// recovery manager is generic storage-service infrastructure shared by
+	// every network driver, so the key is network-agnostic rather than
+	// namespaced under any one driver.
+	ConfigKeyRecovery = "services.network.recovery"
+
+	// deprecatedConfigKeyRecovery is the pre-rename key, namespaced under the
+	// Fabric driver even though recovery is driver-agnostic. LoadConfig still
+	// reads it, with a deprecation warning, so a deployment that tuned recovery
+	// under this key keeps those settings on upgrade instead of silently
+	// reverting to defaults. Remove once operators have had a release to
+	// migrate to ConfigKeyRecovery.
+	deprecatedConfigKeyRecovery = "services.network.fabric.recovery"
 
 	defaultStuckTransactionAlertThreshold = 5
 )
@@ -97,14 +108,30 @@ func LoadConfig(cfg *config.Configuration) (Config, error) {
 	// Start with defaults
 	result := DefaultConfig()
 
-	// Check if recovery configuration exists
-	if !cfg.IsSet(ConfigKeyRecovery) {
+	// Resolve which key the operator actually configured. ConfigKeyRecovery is
+	// the current, network-agnostic key; deprecatedConfigKeyRecovery is the old
+	// Fabric-namespaced one. Prefer the new key, fall back to the deprecated one
+	// with a warning, so an existing deployment keeps its tuned recovery
+	// settings on upgrade instead of silently reverting to defaults. If neither
+	// is set, there is nothing to load.
+	key := ConfigKeyRecovery
+	switch {
+	case cfg.IsSet(ConfigKeyRecovery):
+		// If both are set, the new key wins and the deprecated one is ignored;
+		// warn so the stale block does not go unnoticed.
+		if cfg.IsSet(deprecatedConfigKeyRecovery) {
+			logger.Warnf("both %s and the deprecated %s are set; using %s and ignoring the deprecated key", ConfigKeyRecovery, deprecatedConfigKeyRecovery, ConfigKeyRecovery)
+		}
+	case cfg.IsSet(deprecatedConfigKeyRecovery):
+		logger.Warnf("%s is deprecated; move recovery settings to %s", deprecatedConfigKeyRecovery, ConfigKeyRecovery)
+		key = deprecatedConfigKeyRecovery
+	default:
 		return result, nil
 	}
 
 	// Unmarshal the recovery configuration
 	var config Config
-	if err := cfg.UnmarshalKey(ConfigKeyRecovery, &config); err != nil {
+	if err := cfg.UnmarshalKey(key, &config); err != nil {
 		return result, err
 	}
 
@@ -130,7 +157,7 @@ func LoadConfig(cfg *config.Configuration) (Config, error) {
 	// the Go zero value, same reasoning as NotFoundGracePeriod below. Without
 	// this gate, transactionTimeout: 0 would silently fall back to the
 	// package default and the opt-out would be unreachable.
-	if cfg.IsSet(ConfigKeyRecovery + ".transactionTimeout") {
+	if cfg.IsSet(key + ".transactionTimeout") {
 		if config.TransactionTimeout > 0 && config.TransactionTimeout < minTransactionTimeout {
 			return Config{}, errors.Errorf("recovery transactionTimeout [%s] is below the %s floor: a shorter deadline risks abandoning recoveries that were about to succeed", config.TransactionTimeout, minTransactionTimeout)
 		}
@@ -167,13 +194,13 @@ func LoadConfig(cfg *config.Configuration) (Config, error) {
 	// promotion, so check IsSet rather than the Go zero value. Without this
 	// gate, setting notFoundGracePeriod: 0 in config would silently fall back
 	// to the 30 min default and the documented opt-out would be unreachable.
-	if cfg.IsSet(ConfigKeyRecovery + ".notFoundGracePeriod") {
+	if cfg.IsSet(key + ".notFoundGracePeriod") {
 		result.NotFoundGracePeriod = config.NotFoundGracePeriod
 	}
 	// StuckTransactionAlertThreshold accepts an explicit zero to disable the
 	// log escalation, so check IsSet rather than the Go zero value, same as
 	// NotFoundGracePeriod above.
-	if cfg.IsSet(ConfigKeyRecovery + ".stuckTransactionAlertThreshold") {
+	if cfg.IsSet(key + ".stuckTransactionAlertThreshold") {
 		result.StuckTransactionAlertThreshold = config.StuckTransactionAlertThreshold
 	}
 	// advisoryLockID used to let an operator keep multiple independent recovery
@@ -182,8 +209,8 @@ func LoadConfig(cfg *config.Configuration) (Config, error) {
 	// the load - warn so an operator who relied on it to isolate managers
 	// notices the setting stopped doing anything, instead of finding out only
 	// when leases start colliding.
-	if cfg.IsSet(ConfigKeyRecovery + ".advisoryLockID") {
-		logger.Warnf("%s.advisoryLockID is no longer used; the recovery lock id is now derived per TMS", ConfigKeyRecovery)
+	if cfg.IsSet(key + ".advisoryLockID") {
+		logger.Warnf("%s.advisoryLockID is no longer used; the recovery lock id is now derived per TMS", key)
 	}
 
 	return result, nil

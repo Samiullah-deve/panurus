@@ -1,0 +1,18 @@
+token:
+  enabled: true
+  tms:
+    n1c1ns1:
+      network: n1
+      channel: c1
+      namespace: ns1
+      services:
+        network:
+          # The current key wins when both are present.
+          recovery:
+            enabled: true
+            ttl: 45s
+          fabric:
+            # The deprecated key is ignored when the current one is also set.
+            recovery:
+              enabled: true
+              ttl: 10s

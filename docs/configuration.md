@@ -742,7 +742,14 @@ Default values:
 
 ---
 
-### Optional: token.tms.<name>.services.network.fabric.recovery
+### Optional: token.tms.<name>.services.network.recovery
+
+The recovery manager is shared storage-service infrastructure used by every network driver, so its
+configuration key is network-agnostic: `services.network.recovery`, not nested under any one driver.
+
+> **Deprecation**: recovery settings used to live under `services.network.fabric.recovery`. That key is
+> still read for backward compatibility, with a deprecation warning logged at load time; move your
+> recovery block to `services.network.recovery`. If both keys are present, the new one wins.
 
 If not specified, the default configuration is:
 
@@ -752,18 +759,17 @@ token:
     <name>:
       services:
         network:
-          fabric:
-            recovery:
-              enabled: true
-              ttl: 30s
-              scanInterval: 5s
-              batchSize: 16
-              workerCount: 8
-              leaseDuration: 5m
-              transactionTimeout: 60s
-              instanceID:
-              notFoundGracePeriod: 30m
-              stuckTransactionAlertThreshold: 5
+          recovery:
+            enabled: true
+            ttl: 30s
+            scanInterval: 5s
+            batchSize: 16
+            workerCount: 8
+            leaseDuration: 5m
+            transactionTimeout: 60s
+            instanceID:
+            notFoundGracePeriod: 30m
+            stuckTransactionAlertThreshold: 5
 ```
 
 Default values:
